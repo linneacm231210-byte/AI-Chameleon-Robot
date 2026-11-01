@@ -1,188 +1,119 @@
-# AMB82-Mini + Google AI Edge Gallery Smart Giraffe
+# PROPOSAL：邊緣運算智慧變色龍機器人（AI Chameleon Agent）
 
-## Project proposal
+**使用晶片：AMB82-mini（Realtek）作為機器人主控制器**
 
-The recommended architecture is to make the **AMB82-Mini the giraffe's embodied hardware controller**, while **Google AI Edge Gallery on an Android device provides the higher-level agent/reasoning layer**. Rather than putting a full MCP implementation and a large language model on the microcontroller, the AMB82 exposes a small semantic JSON/HTTP API for perception and physical actions.
+**邊緣 AI 模型：Google Edge AI Gemma4-E2B（於手機 Edge AI App 端執行）**
 
-```text
-                   SMART GIRAFFE
- ┌────────────────────────────────────────────┐
- │                AMB82-Mini                  │
- │                                            │
- │ Camera ──> local vision ──> perception     │
- │ Mic ─────> audio/event detection           │
- │                                            │
- │              Giraffe Agent API             │
- │        HTTP/WebSocket JSON interface       │
- │                    │                       │
- │       ┌────────────┼────────────┐          │
- │       ▼            ▼            ▼          │
- │    Speaker       Servos        LEDs         │
- │   / playback   head / ears   expression     │
- └────────────────────┬───────────────────────┘
-                      │ Wi-Fi
-                      │
-              Android phone/tablet
- ┌────────────────────▼───────────────────────┐
- │          Google AI Edge Gallery            │
- │                                            │
- │        on-device model / agent             │
- │                 │                          │
- │         Giraffe Agent Skill                │
- │                 │                          │
- │        JS Skill / MCP ecosystem            │
- │                 │                          │
- │       ┌─────────┼─────────┐                │
- │       ▼         ▼         ▼                │
- │     look()    emotion()   move()            │
- │     status()  play()      etc.              │
- └────────────────────────────────────────────┘
+**組員：** 邱筠婷、張詠晴
+
+**是否願意參與瑞昱科技計畫評審：**  願意
+
+---
+
+## 1. 計畫動機
+
+變色龍最迷人的特質是「隨環境與情緒變色」、「眼睛可獨立轉動觀察四周」、「緩慢且謹慎地移動」。
+本計畫以這些生物特徵為靈感，打造一隻**會看、會聽、會說、會變色的邊緣運算陪伴機器人**：
+它能用鏡頭觀察周遭環境顏色，用本機端 AI 理解使用者的話語與情緒，再以身上的 LED 燈條「變色」來表達心情或擬態環境色。
+
+所有推論皆在**邊緣端（手機 Gemma4-E2B + AMB82-mini）**完成，不依賴雲端，兼顧**隱私、低延遲、離線可用**。
+
+## 2. 計畫目標
+
+1. 以 AMB82-mini 實作具感測與行動能力的變色龍機器人本體。
+2. 以 Gemma4-E2B 作為機器人「大腦」，實現 Agentic（自主規劃、呼叫工具、執行動作）行為。
+3. 比較兩種人機互動方式（Edge AI App 介面 vs. 直接對機器人說話）在**變色龍機器人**上的優缺點。
+4. 完成「環境擬態變色」與「情緒變色」兩項創新功能。
+
+## 3. 硬體規劃
+
+| AMB82-mini 功能 | 在變色龍機器人上的用途 |
+|---|---|
+| 影像擷取（Camera） | 擷取環境照片，分析主色調做「擬態變色」；偵測人臉／手勢 |
+| 音訊錄音（Mic） | 收音，接收使用者語音指令 |
+| 播放 MP3（SD 卡／TTS 語音檔） | 播放預錄的變色龍叫聲、音效，或播放 TTS 合成的回應語音 |
+| IR 距離感測器 | 避障、保持與人／物體的安全距離，模擬變色龍「謹慎靠近」 |
+| IMU | 偵測被拿起、搖晃、傾倒，觸發驚嚇變色反應 |
+| 輪子馬達驅動 | 緩慢爬行、轉向（變色龍式「搖擺步伐」可用 PWM 速度調變模擬） |
+
+**額外外接**
+- WS2812B 可定址 RGB LED 燈條（貼於機身，作為「變色皮膚」）
+- 2 顆小型伺服馬達（雙眼獨立轉動，增加生物感）
+- 3D 列印或布料外殼（變色龍造型）
+
+## 4. 系統架構概念
+
+```
+使用者 ──(語音 / 手機App文字)──┐
+                               ▼
+        ┌──────────────────────────────┐
+        │ 手機 Edge AI App             │
+        │  Gemma4-E2B（本機推論）       │
+        │  ‧ 意圖理解 ‧ 情緒判斷        │
+        │  ‧ Agent 規劃 / 工具呼叫      │
+        └──────────────┬───────────────┘
+                       │ Wi-Fi / BLE（指令 JSON）
+                       ▼
+        ┌──────────────────────────────┐
+        │ AMB82-mini 機器人控制器       │
+        │  相機 / 麥克風 / IR / IMU     │
+        │  馬達驅動 / MP3 播放 / LED    │
+        └──────────────────────────────┘
 ```
 
-## Why use a small hardware API?
+**Agent 工具（Tools）設計：**
+`capture_image()`、`get_dominant_color()`、`set_skin_color(r,g,b)`、`move(direction, speed)`、`read_distance()`、`read_imu()`、`play_sound(name | tts)`、`rotate_eyes(angle)`
 
-MCP is most useful at the agent/tool integration layer. The AMB82 should remain responsible for deterministic embedded functions: camera inference, GPIO/PWM, audio playback, LEDs, sensor events, and motion safety. A compact HTTP/JSON API is easier to debug, uses less RAM/flash, and prevents the language model from directly commanding low-level PWM or GPIO values.
+## 5. 兩種互動方式比較（以 RoboCar 與變色龍為例）
 
-The agent should therefore request semantic actions such as:
-
-```text
-giraffe.look()
-giraffe.nod()
-giraffe.shake_head()
-giraffe.wave()
-giraffe.set_emotion("happy")
-giraffe.play_sound("hello")
-giraffe.status()
-```
-
-Do **not** expose low-level commands such as arbitrary servo angles, raw PWM duty cycles, or unrestricted GPIO writes to the agent.
-
-## Two-level AI design
-
-```text
-       Fast / reactive                    Cognitive
-       AMB82-Mini                         Android device
-
-       local object detection             reasoning
-       gesture/event detection            conversation
-       camera capture                     agent skills
-       LEDs / audio / servos              MCP integrations
-       safety interlocks                  planning
-```
-
-The AMB82 can turn continuous sensor streams into compact events. For example:
-
-```json
-{
-  "event": "object_detected",
-  "objects": [
-    {"class": "person", "confidence": 0.96},
-    {"class": "book", "confidence": 0.88}
-  ]
-}
-```
-
-This event-driven approach avoids continuously sending camera frames to the phone.
-
-## Recommended first six tools
-
-| Tool | AMB82 role | Agent purpose |
+| 面向 | A. Edge AI App + Gemma4-E2B 介面 | B. 直接對機器人說話 |
 |---|---|---|
-| `look()` | Camera + local detector | Understand surroundings |
-| `nod()` | Servo animation | Positive physical response |
-| `shake()` | Servo animation | Negative physical response |
-| `emotion()` | LED + bounded motion | Express state |
-| `play()` | microSD/audio playback | Sounds or prerecorded speech |
-| `status()` | Device telemetry | Check device state |
+| 運算位置 | 手機端 Gemma4-E2B，能力強 | AMB82-mini 端僅做收音／簡單關鍵詞，複雜理解需回傳手機 |
+| 理解能力 | 高：可多輪對話、複雜任務規劃 | 中低：適合短指令（「前進」「變紅」） |
+| 延遲 | 中（需 Wi-Fi/BLE 往返） | 本機關鍵詞低；若需 LLM 則延遲較高 |
+| 使用情境 | 需要看畫面、設定任務、除錯 | 自然、免持、適合兒童與陪伴情境 |
+| 使用者體驗 | 功能豐富但像「操作軟體」 | 像「與寵物互動」，沉浸感佳 |
+| 隱私 | 全部在本機，佳 | 全部在本機，佳；但需注意持續收音 |
+| 變色龍機器人適用度 | 設定擬態模式、查看分析結果 | **主要陪伴互動方式（說「你現在心情如何？」）** |
 
-## Example interaction
+**結論構想：** 採**混合式**——日常以直接對話互動（陪伴感），進階任務與設定透過 App（Gemma4-E2B 擔任大腦）。
 
-```text
-User: "What am I holding?"
+## 6. 創新功能
 
-Agent -> look()
-AMB82 -> {"objects":[{"label":"book","confidence":0.88}]}
-Agent -> formulates an answer
-Agent -> emotion("happy")
-Agent -> nod()
-Phone/TTS or toy audio -> "It looks like a book."
-```
+1. **環境擬態變色（Camouflage Mode）**：相機擷取前方／下方環境，由 Gemma4-E2B 或影像處理取得主色調，LED 皮膚自動漸變為相近顏色。
+2. **情緒變色（Mood Skin）**：Gemma4-E2B 判斷使用者語氣與內容的情緒（開心＝黃綠、生氣＝紅、平靜＝藍、害怕＝灰白），機器人用顏色＋叫聲＋動作回應。
+3. **謹慎爬行行為**：結合 IR 距離與 IMU，遇到障礙緩慢停下、轉眼睛觀察，被拿起時「驚嚇變色」。
+4. **Agentic 自主任務**：例如使用者說「找個適合你躲藏的地方」，Agent 自行規劃：轉動拍照 → 比對顏色 → 移動 → 擬態。
+5. **完全離線**：不使用雲端 API，保護隱私。
 
-## Firmware/API design
+## 7. 預期成果與評估指標
 
-The reference firmware in `GiraffeAgent.ino` exposes endpoints such as:
+| 項目 | 指標 |
+|---|---|
+| 擬態變色準確度 | 與環境主色 RGB 距離（目標誤差 < 一定閾值） |
+| 指令成功率 | 10 句常用指令辨識＋執行成功率 |
+| 互動延遲 | 說話到機器人動作／變色的時間 |
+| 避障成功率 | 在簡易場景中不碰撞比率 |
+| 使用者回饋 | 同學試玩問卷（趣味性、自然度） |
 
-```text
-GET /status
-GET /look
-GET /nod
-GET /shake
-GET /wave
-GET /emotion/happy
-GET /emotion/curious
-GET /emotion/thinking
-GET /emotion/sleepy
-GET /play/hello
-```
+## 8. 時程規劃
 
-The supplied implementation intentionally contains adapter functions for camera inference, servo control, LEDs, and audio. Replace those adapters with the APIs appropriate to the exact AMB82-Mini board package and peripherals used in the build.
+| 週次 | 工作 |
+|---|---|
+| 第 1 週 | 組裝硬體、測試 AMB82-mini 各感測器 |
+| 第 2 週 | LED 變色與馬達控制、MP3 音效 |
+| 第 3 週 | 手機 App 與 Gemma4-E2B 串接、Agent 工具定義 |
+| 第 4 週 | 擬態變色與情緒變色整合 |
+| 第 5 週 | 語音直接互動、整體測試 |
+| 第 6 週 | 成果展示、撰寫報告 |
 
-## AI Edge Gallery Skill
+## 9. 風險與對策
 
-The reference `SKILL.md` gives the model a deliberately small physical-action vocabulary. `scripts/index.html` acts as the bridge between the Skill and the AMB82 HTTP API.
+- **Gemma4-E2B 在手機上速度不足** → 精簡 prompt、限制輸出格式為 JSON。
+- **Wi-Fi/BLE 連線不穩** → 機器人保留基本本機反應（避障、預設音效）。
+- **LED 耗電過大** → 限制亮度、使用獨立電源。
+- **環境顏色偵測受光線影響** → 加入白平衡與多點取樣平均。
 
-The bridge validates actions before sending them to the toy. This is an important design property: model output is never translated into unrestricted hardware access.
+## 10. 結語
 
-## Version 2: events
-
-After command/control is stable, add an event channel, for example:
-
-```text
-ws://giraffe.local/events
-```
-
-Possible events:
-
-```json
-{"event":"person_detected"}
-{"event":"wave_detected"}
-{"event":"button_pressed"}
-{"event":"picked_up"}
-{"event":"object_detected","object":"book"}
-```
-
-This allows the physical toy to initiate interactions without constant polling.
-
-## Safety and privacy
-
-- Enforce servo travel, speed, and timeout limits in firmware, not in prompts.
-- Never expose arbitrary GPIO/PWM control to the language model.
-- Keep moving linkages, batteries, and rigid parts inaccessible through the plush exterior.
-- Use visible indicators for camera/microphone/network activity.
-- Avoid continuous audio/video upload; perform local event detection where practical.
-- Do not store images/audio by default.
-- Provide a physical power switch and preferably hardware camera/microphone disable controls.
-- Validate power supply current and peripheral voltage compatibility before assembly.
-- Treat a modified plush as an engineering prototype unless it has undergone applicable toy/product safety testing.
-
-## Suggested implementation order
-
-1. Bring up Wi-Fi and `/status`.
-2. Implement bounded LED expressions.
-3. Implement one servo and `/nod` with hard travel limits.
-4. Add camera capture/local detection and `/look`.
-5. Add microSD/audio playback and `/play`.
-6. Install the AI Edge Gallery Skill and test the JavaScript bridge.
-7. Add event-driven perception only after command/control is reliable.
-8. Add richer STT/TTS/MCP integrations at the Android agent layer.
-
-## Repository layout
-
-```text
-giraffe-agent/
-├── PROPOSAL.md
-├── GiraffeAgent.ino
-├── SKILL.md
-└── scripts/
-    └── index.html
-```
+本計畫結合 **AMB82-mini 的多感測與控制能力** 與 **Gemma4-E2B 的邊緣 AI 推理能力**，打造一隻有生命感、會擬態與表達情緒的變色龍機器人，並實際比較兩種互動模式，兼具趣味性與工程學習價值。
